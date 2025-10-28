@@ -122,15 +122,15 @@ namespace avaness.SpaceEngineersLauncher
 
 				splash?.SetText("Registering plugins...");
 
-				if (CanUseLoader(config))
+				string loaderDll = Path.Combine(exeLocation, PluginLoaderFile);
+				if (File.Exists(loaderDll))
 				{
-					string loaderDll = Path.Combine(exeLocation, PluginLoaderFile);
 					pluginLog.Append(loaderDll).Append(',');
 					plugins.Add(loaderDll);
 				}
 				else
 				{
-					LogFile.WriteLine("WARNING: Plugin Loader does not exist.");
+					LogFile.WriteLine("WARNING: PluginLoader.dll missing at " + loaderDll);
 				}
 
 				if (args != null && args.Length > 1)
