@@ -1,501 +1,599 @@
-﻿using Sandbox;
-using SpaceEngineers;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Windows.Forms;
-using VRage.Plugins;
-using System.Linq;
-using System.Diagnostics;
 using System.Threading;
-using System.Security.Cryptography;
+using System.Windows.Forms;
+using Sandbox;
+using Sandbox.Game;
+using SpaceEngineers;
+using SpaceEngineers.Game;
+using Steamworks;
+using VRage.Plugins;
+using VRage.Utils;
 
 namespace avaness.SpaceEngineersLauncher
 {
-    static class Program
-    {
-		private const uint AppId = 244850u;
-		private const string RepoUrl = "https://github.com/sepluginloader/PluginLoader/";
-		private const string RepoDownloadSuffix = "releases/download/{0}/PluginLoader-{0}.zip";
-		private static readonly Regex VersionRegex = new Regex(@"^v(\d+\.)*\d+$");
-		private const string PluginLoaderFile = "PluginLoader.dll";
-		private const string OriginalAssemblyFile = "SpaceEngineers.exe";
-		private const string ProgramGuid = "03f85883-4990-4d47-968e-5e4fc5d72437";
-		private static readonly Version SupportedGameVersion = new Version(1, 202, 0);
-		private const int MutexTimeout = 1000; // ms
-		private const int SteamTimeout = 30; // seconds
-
-		private static string exeLocation;
-		private static SplashScreen splash;
-		private static Mutex mutex; // For ensuring only a single instance of SE
-		private static bool mutexActive;
-
-		static void Main(string[] args)
+	// Token: 0x02000004 RID: 4
+	internal static class Program
+	{
+		// Token: 0x06000011 RID: 17 RVA: 0x000022C8 File Offset: 0x000004C8
+		private static void Main(string[] args)
 		{
-			if (IsReport(args))
-            {
-				StartSpaceEngineers(args);
+			if (Program.IsReport(args))
+			{
+				Program.StartSpaceEngineers(args);
 				return;
 			}
-
-			exeLocation = Path.GetDirectoryName(Path.GetFullPath(Assembly.GetExecutingAssembly().Location));
-
-			if (!IsSingleInstance())
+			Program.exeLocation = Path.GetDirectoryName(Path.GetFullPath(Assembly.GetExecutingAssembly().Location));
+			if (!Program.IsSingleInstance())
 			{
-				Show("Error: Space Engineers is already running!");
+				Program.Show("Error: Space Engineers is already running!", MessageBoxButtons.OK);
 				return;
 			}
-
-			if (!IsInGameFolder())
+			if (!Program.IsInGameFolder())
 			{
-                Show($"Error: {OriginalAssemblyFile} not found!\nIs {Path.GetFileName(Assembly.GetExecutingAssembly().Location)} in the Bin64 folder?");
-                return;
-            }
-
-			if (!IsSupportedGameVersion())
-			{
-				Show("Game version not supported! Requires " + SupportedGameVersion.ToString(3) + " or later");
+				Program.Show("Error: SpaceEngineers.exe not found!\nIs " + Path.GetFileName(Assembly.GetExecutingAssembly().Location) + " in the Bin64 folder?", MessageBoxButtons.OK);
 				return;
 			}
-
+			if (!Program.IsSupportedGameVersion())
+			{
+				Program.Show("Game version not supported! Requires " + Program.SupportedGameVersion.ToString(3) + " or later", MessageBoxButtons.OK);
+				return;
+			}
 			try
 			{
-				StartPluginLoader(args);
-				StartSpaceEngineers(args);
-				Close();
+				Program.StartPluginLoader(args);
+				Program.StartSpaceEngineers(args);
+				Program.Close();
 			}
 			finally
-            {
-				if (mutexActive)
-					mutex.ReleaseMutex();
+			{
+				if (Program.mutexActive)
+				{
+					Program.mutex.ReleaseMutex();
+				}
 			}
 		}
 
+		// Token: 0x06000012 RID: 18
 		private static void StartPluginLoader(string[] args)
-        {
-			bool nosplash = args != null && Array.IndexOf(args, "-nosplash") >= 0;
-			if (!nosplash)
-				splash = new SplashScreen("avaness.SpaceEngineersLauncher");
-
+		{
+			bool flag = args != null && Array.IndexOf<string>(args, "-nosplash") >= 0;
+			if (!flag)
+			{
+				Program.splash = new SplashScreen("avaness.SpaceEngineersLauncher");
+			}
 			try
 			{
-				string pluginsDir = Path.Combine(exeLocation, "Plugins");
-				if(!Directory.Exists(pluginsDir))
-					Directory.CreateDirectory(pluginsDir);
-
-				LogFile.Init(Path.Combine(pluginsDir, "launcher.log"));
+				string text = Path.Combine(Program.exeLocation, "Plugins");
+				if (!Directory.Exists(text))
+				{
+					Directory.CreateDirectory(text);
+				}
+				LogFile.Init(Path.Combine(text, "launcher.log"));
 				LogFile.WriteLine("Starting - v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3));
-
-				ConfigFile config = ConfigFile.Load(Path.Combine(pluginsDir, "launcher.xml"));
-
-				// Fix tls 1.2 not supported on Windows 7 - github.com is tls 1.2 only
+				ConfigFile configFile = ConfigFile.Load(Path.Combine(text, "launcher.xml"));
 				try
 				{
 					ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
 				}
-				catch (NotSupportedException e)
+				catch (NotSupportedException ex6)
 				{
-					LogFile.WriteLine("An error occurred while setting up networking, web requests will probably fail: " + e);
+					string str = "An error occurred while setting up networking, web requests will probably fail: ";
+					NotSupportedException ex2 = ex6;
+					LogFile.WriteLine(str + ((ex2 != null) ? ex2.ToString() : null));
 				}
-
-				string appIdFile = Path.Combine(exeLocation, "steam_appid.txt");
-				if (!File.Exists(appIdFile))
+				string text2 = Path.Combine(Program.exeLocation, "steam_appid.txt");
+				if (!File.Exists(text2))
 				{
-					LogFile.WriteLine(appIdFile + " does not exist, creating.");
-					File.WriteAllText(appIdFile, AppId.ToString());
+					LogFile.WriteLine(text2 + " does not exist, creating.");
+					File.WriteAllText(text2, 244850U.ToString());
 				}
-
-				StartSteam();
-
-				EnsureAssemblyConfigFile();
-
-				if (!config.NoUpdates)
-					Update(config);
-
-				StringBuilder pluginLog = new StringBuilder("Loading plugins: ");
-				List<string> plugins = new List<string>();
-
-				splash?.SetText("Registering plugins...");
-
-				string loaderDll = Path.Combine(exeLocation, PluginLoaderFile);
+				Program.StartSteam();
+				Program.EnsureAssemblyConfigFile();
+				if (!configFile.NoUpdates)
+				{
+					Program.Update(configFile);
+				}
+				StringBuilder stringBuilder = new StringBuilder("Loading plugins: ");
+				List<string> list = new List<string>();
+				SplashScreen splashScreen = Program.splash;
+				if (splashScreen != null)
+				{
+					splashScreen.SetText("Registering plugins...");
+				}
+				string loaderDll = Path.Combine(Program.exeLocation, "PluginLoader.dll");
 				if (File.Exists(loaderDll))
 				{
-					pluginLog.Append(loaderDll).Append(',');
-					plugins.Add(loaderDll);
+					stringBuilder.Append(loaderDll).Append(',');
+					list.Add(loaderDll);
 				}
 				else
 				{
 					LogFile.WriteLine("WARNING: PluginLoader.dll missing at " + loaderDll);
 				}
-
+				foreach (string dll in Directory.GetFiles(text, "*.dll"))
+				{
+					if (!dll.EndsWith("PluginLoader.dll", StringComparison.OrdinalIgnoreCase))
+					{
+						stringBuilder.Append(dll).Append(";");
+						list.Add(dll);
+					}
+				}
 				if (args != null && args.Length > 1)
 				{
-					int pluginFlag = Array.IndexOf(args, "-plugin");
-					if (pluginFlag >= 0)
+					int num = Array.IndexOf<string>(args, "-plugin");
+					if (num >= 0)
 					{
-						args[pluginFlag] = "";
-						for (int i = pluginFlag + 1; i < args.Length && !args[i].StartsWith("-"); i++)
+						args[num] = "";
+						int num2 = num + 1;
+						while (num2 < args.Length && !args[num2].StartsWith("-"))
 						{
-							string plugin = args[i];
-							if (plugin.EndsWith("PluginLoader.dll", StringComparison.OrdinalIgnoreCase))
-								continue;
-							if (!Path.IsPathRooted(plugin))
-								plugin = Path.GetFullPath(Path.Combine(exeLocation, plugin));
-							if (File.Exists(plugin))
+							string text3 = args[num2];
+							if (!text3.EndsWith("PluginLoader.dll", StringComparison.OrdinalIgnoreCase))
 							{
-                                pluginLog.Append(plugin).Append(',');
-								plugins.Add(plugin);
+								if (!Path.IsPathRooted(text3))
+								{
+									text3 = Path.GetFullPath(Path.Combine(Program.exeLocation, text3));
+								}
+								if (File.Exists(text3))
+								{
+									stringBuilder.Append(text3).Append(',');
+									list.Add(text3);
+								}
+								else
+								{
+									LogFile.WriteLine("WARNING: '" + text3 + "' does not exist.");
+								}
 							}
-							else
-							{
-								LogFile.WriteLine("WARNING: '" + plugin + "' does not exist.");
-							}
+							num2++;
 						}
 					}
 				}
-
-				if (plugins.Count > 0)
+				if (list.Count > 0)
 				{
-					if (pluginLog.Length > 0)
-						pluginLog.Length--;
-					LogFile.WriteLine(pluginLog.ToString());
-
-					MyPlugins.RegisterUserAssemblyFiles(plugins);
+					if (stringBuilder.Length > 0)
+					{
+						StringBuilder stringBuilder2 = stringBuilder;
+						int length = stringBuilder2.Length;
+						stringBuilder2.Length = length - 1;
+					}
+					LogFile.WriteLine(stringBuilder.ToString());
+					MyPlugins.RegisterUserAssemblyFiles(list);
 				}
-
-				splash?.SetText("Starting game...");
+				SplashScreen splashScreen2 = Program.splash;
+				if (splashScreen2 != null)
+				{
+					splashScreen2.SetText("Starting game...");
+				}
 			}
-			catch (Exception e)
+			catch (Exception ex3)
 			{
-				LogFile.WriteLine("Error while getting Plugin Loader ready: " + e);
-				Show("Plugin Loader crashed: " + e);
+				string str2 = "Error while getting Plugin Loader ready: ";
+				Exception ex4 = ex3;
+				LogFile.WriteLine(str2 + ((ex4 != null) ? ex4.ToString() : null));
+				string str3 = "Plugin Loader crashed: ";
+				Exception ex5 = ex3;
+				Program.Show(str3 + ((ex5 != null) ? ex5.ToString() : null), MessageBoxButtons.OK);
 				if (Application.OpenForms.Count > 0)
-                    Application.OpenForms[0].Close();
+				{
+					Application.OpenForms[0].Close();
+				}
 			}
-
-			if (nosplash)
-				Close();
-			else
-				MyCommonProgramStartup.BeforeSplashScreenInit += Close;
+			if (flag)
+			{
+				Program.Close();
+				return;
+			}
+			MyCommonProgramStartup.BeforeSplashScreenInit = (Action)Delegate.Combine(MyCommonProgramStartup.BeforeSplashScreenInit, new Action(Program.Close));
 		}
 
-        private static void StartSteam()
+		// Token: 0x06000013 RID: 19 RVA: 0x000026F8 File Offset: 0x000008F8
+		private static void StartSteam()
 		{
-			if(!Steamworks.SteamAPI.IsSteamRunning())
+			if (!SteamAPI.IsSteamRunning())
 			{
-				splash?.SetText("Starting steam...");
+				SplashScreen splashScreen = Program.splash;
+				if (splashScreen != null)
+				{
+					splashScreen.SetText("Starting steam...");
+				}
 				try
 				{
-					Process steam = Process.Start(
-						new ProcessStartInfo("cmd", "/c start steam://")
-						{
-							UseShellExecute = true,
-							WindowStyle = ProcessWindowStyle.Hidden,
-						});
-					if(steam != null)
-                    {
-						for (int i = 0; i < SteamTimeout; i++)
+					if (Process.Start(new ProcessStartInfo("cmd", "/c start steam://")
+					{
+						UseShellExecute = true,
+						WindowStyle = ProcessWindowStyle.Hidden
+					}) != null)
+					{
+						for (int i = 0; i < 30; i++)
 						{
 							Thread.Sleep(1000);
-							if (Steamworks.SteamAPI.Init())
+							if (SteamAPI.Init())
+							{
 								return;
+							}
 						}
 					}
 				}
-				catch { }
-
+				catch
+				{
+				}
 				LogFile.WriteLine("Steam not detected!");
-				Show("Steam must be running before you can start Space Engineers.");
-				splash?.Delete();
+				Program.Show("Steam must be running before you can start Space Engineers.", MessageBoxButtons.OK);
+				SplashScreen splashScreen2 = Program.splash;
+				if (splashScreen2 != null)
+				{
+					splashScreen2.Delete();
+				}
 				Environment.Exit(0);
 			}
-
 		}
 
-		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+		// Token: 0x06000014 RID: 20 RVA: 0x000027AC File Offset: 0x000009AC
+		[MethodImpl(MethodImplOptions.NoInlining)]
 		private static void StartSpaceEngineers(string[] args)
 		{
 			MyProgram.Main(args);
 		}
 
+		// Token: 0x06000015 RID: 21 RVA: 0x000027B4 File Offset: 0x000009B4
 		private static bool IsInGameFolder()
 		{
-			return File.Exists(Path.Combine(exeLocation, OriginalAssemblyFile));
+			return File.Exists(Path.Combine(Program.exeLocation, "SpaceEngineers.exe"));
 		}
 
-        private static bool IsSupportedGameVersion()
+		// Token: 0x06000016 RID: 22 RVA: 0x000027CC File Offset: 0x000009CC
+		private static bool IsSupportedGameVersion()
 		{
-			SpaceEngineers.Game.SpaceEngineersGame.SetupBasicGameInfo();
-			int? gameVersionInt = Sandbox.Game.MyPerGameSettings.BasicGameInfo.GameVersion;
-			if (!gameVersionInt.HasValue)
-				return true;
-			string gameVersionStr = VRage.Utils.MyBuildNumbers.ConvertBuildNumberFromIntToStringFriendly(gameVersionInt.Value, ".");
-			Version gameVersion = new Version(gameVersionStr);
-			return gameVersion >= SupportedGameVersion;
-        }
+			SpaceEngineersGame.SetupBasicGameInfo();
+			int? gameVersion = MyPerGameSettings.BasicGameInfo.GameVersion;
+			return gameVersion == null || new System.Version(MyBuildNumbers.ConvertBuildNumberFromIntToStringFriendly(gameVersion.Value, ".")) >= Program.SupportedGameVersion;
+		}
 
-        private static bool IsSingleInstance()
-        {
-			// Check for other SpaceEngineersLauncher.exe
-			mutex = new Mutex(true, ProgramGuid, out mutexActive);
-			if (!mutexActive)
-            {
+		// Token: 0x06000017 RID: 23 RVA: 0x00002814 File Offset: 0x00000A14
+		private static bool IsSingleInstance()
+		{
+			Program.mutex = new Mutex(true, "03f85883-4990-4d47-968e-5e4fc5d72437", ref Program.mutexActive);
+			if (!Program.mutexActive)
+			{
 				try
 				{
-					mutexActive = mutex.WaitOne(MutexTimeout);
-					if(!mutexActive)
+					Program.mutexActive = Program.mutex.WaitOne(1000);
+					if (!Program.mutexActive)
+					{
 						return false;
+					}
 				}
 				catch (AbandonedMutexException)
-				{ } // Abandoned probably means that the process was killed or crashed
-			}
-
-			// Check for other SpaceEngineers.exe
-			string sePath = Path.Combine(exeLocation, OriginalAssemblyFile);
-			if (Process.GetProcessesByName("SpaceEngineers").Any(x => x.MainModule.FileName.Equals(sePath, StringComparison.OrdinalIgnoreCase)))
-				return false;
-
-			return true;
-        }
-
-        private static void EnsureAssemblyConfigFile()
-        {
-			// Without this file, SE will have many bugs because its dependencies will not be correct.
-			string originalConfig = Path.Combine(exeLocation, OriginalAssemblyFile + ".config");
-			string newConfig = Path.Combine(exeLocation, Path.GetFileName(Assembly.GetExecutingAssembly().Location) + ".config");
-			if (File.Exists(originalConfig))
-            {
-				if (!File.Exists(newConfig) || !FilesEqual(originalConfig, newConfig))
-                {
-					File.Copy(originalConfig, newConfig, true);
-					Restart();
+				{
 				}
 			}
-			else if(File.Exists(newConfig))
-            {
-				File.Delete(newConfig);
-				Restart();
-            }
+			string sePath = Path.Combine(Program.exeLocation, "SpaceEngineers.exe");
+			return !Process.GetProcessesByName("SpaceEngineers").Any((Process x) => x.MainModule.FileName.Equals(sePath, StringComparison.OrdinalIgnoreCase));
 		}
 
+		// Token: 0x06000018 RID: 24 RVA: 0x000028B0 File Offset: 0x00000AB0
+		private static void EnsureAssemblyConfigFile()
+		{
+			string text = Path.Combine(Program.exeLocation, "SpaceEngineers.exe.config");
+			string text2 = Path.Combine(Program.exeLocation, Path.GetFileName(Assembly.GetExecutingAssembly().Location) + ".config");
+			if (File.Exists(text))
+			{
+				if (!File.Exists(text2) || !Program.FilesEqual(text, text2))
+				{
+					File.Copy(text, text2, true);
+					Program.Restart();
+					return;
+				}
+			}
+			else if (File.Exists(text2))
+			{
+				File.Delete(text2);
+				Program.Restart();
+			}
+		}
+
+		// Token: 0x06000019 RID: 25 RVA: 0x0000292B File Offset: 0x00000B2B
 		private static void Close()
 		{
-			MyCommonProgramStartup.BeforeSplashScreenInit -= Close;
-			splash?.Delete();
-			splash = null;
+			MyCommonProgramStartup.BeforeSplashScreenInit = (Action)Delegate.Remove(MyCommonProgramStartup.BeforeSplashScreenInit, new Action(Program.Close));
+			SplashScreen splashScreen = Program.splash;
+			if (splashScreen != null)
+			{
+				splashScreen.Delete();
+			}
+			Program.splash = null;
 			LogFile.Dispose();
 		}
 
-        static bool IsReport(string[] args)
-        {
-			return args != null && args.Length > 0 
-				&& (Array.IndexOf(args, "-report") >= 0 || Array.IndexOf(args, "-reporX") >= 0);
-        }
+		// Token: 0x0600001A RID: 26 RVA: 0x00002968 File Offset: 0x00000B68
+		private static bool IsReport(string[] args)
+		{
+			return args != null && args.Length != 0 && (Array.IndexOf<string>(args, "-report") >= 0 || Array.IndexOf<string>(args, "-reporX") >= 0);
+		}
 
-		static void Update(ConfigFile config)
-        {
-			splash?.SetText("Checking for updates...");
-
-
-			string currentVersion = null;
-			if (!string.IsNullOrWhiteSpace(config.LoaderVersion) && CanUseLoader(config) && VersionRegex.IsMatch(config.LoaderVersion))
+		// Token: 0x0600001B RID: 27 RVA: 0x00002994 File Offset: 0x00000B94
+		private static void Update(ConfigFile config)
+		{
+			SplashScreen splashScreen = Program.splash;
+			if (splashScreen != null)
 			{
-				currentVersion = config.LoaderVersion;
-				LogFile.WriteLine("Plugin Loader " + currentVersion);
+				splashScreen.SetText("Checking for updates...");
+			}
+			string text = null;
+			if (!string.IsNullOrWhiteSpace(config.LoaderVersion) && Program.CanUseLoader(config) && Program.VersionRegex.IsMatch(config.LoaderVersion))
+			{
+				text = config.LoaderVersion;
+				LogFile.WriteLine("Plugin Loader " + text);
 			}
 			else
 			{
 				LogFile.WriteLine("Plugin Loader version unknown");
 			}
-
-			if (!IsLatestVersion(config, currentVersion, out string latestVersion))
+			string text2;
+			if (!Program.IsLatestVersion(config, text, out text2))
 			{
-				LogFile.WriteLine("An update is available to " + latestVersion);
-
-				StringBuilder prompt = new StringBuilder();
-				if (string.IsNullOrWhiteSpace(currentVersion))
-                {
-					prompt.Append("Plugin Loader is not installed!").AppendLine();
-					prompt.Append("Version to download: ").Append(latestVersion).AppendLine();
-					prompt.Append("Would you like to install it now?");
+				LogFile.WriteLine("An update is available to " + text2);
+				StringBuilder stringBuilder = new StringBuilder();
+				if (string.IsNullOrWhiteSpace(text))
+				{
+					stringBuilder.Append("Plugin Loader is not installed!").AppendLine();
+					stringBuilder.Append("Version to download: ").Append(text2).AppendLine();
+					stringBuilder.Append("Would you like to install it now?");
 				}
 				else
-                {
-					prompt.Append("An update is available for Plugin Loader:").AppendLine();
-					prompt.Append(currentVersion).Append(" -> ").Append(latestVersion).AppendLine();
-					prompt.Append("Would you like to update now?");
-				}
-
-				DialogResult result = Show(prompt.ToString(), MessageBoxButtons.YesNoCancel);
-				if (result == DialogResult.Yes)
 				{
-					splash?.SetText("Downloading update...");
-					if (!TryDownloadUpdate(config, latestVersion))
-						Show("Update failed!");
+					stringBuilder.Append("An update is available for Plugin Loader:").AppendLine();
+					stringBuilder.Append(text).Append(" -> ").Append(text2).AppendLine();
+					stringBuilder.Append("Would you like to update now?");
 				}
-				else if (result == DialogResult.Cancel)
+				DialogResult dialogResult = Program.Show(stringBuilder.ToString(), MessageBoxButtons.YesNoCancel);
+				if (dialogResult == DialogResult.Yes)
 				{
-					splash?.Delete();
+					SplashScreen splashScreen2 = Program.splash;
+					if (splashScreen2 != null)
+					{
+						splashScreen2.SetText("Downloading update...");
+					}
+					if (!Program.TryDownloadUpdate(config, text2))
+					{
+						Program.Show("Update failed!", MessageBoxButtons.OK);
+						return;
+					}
+				}
+				else if (dialogResult == DialogResult.Cancel)
+				{
+					SplashScreen splashScreen3 = Program.splash;
+					if (splashScreen3 != null)
+					{
+						splashScreen3.Delete();
+					}
 					Environment.Exit(0);
 				}
 			}
 		}
 
-		static bool IsLatestVersion(ConfigFile config, string currentVersion, out string latestVersion)
-        {
+		// Token: 0x0600001C RID: 28 RVA: 0x00002AF4 File Offset: 0x00000CF4
+		private static bool IsLatestVersion(ConfigFile config, string currentVersion, out string latestVersion)
+		{
 			try
 			{
-				Uri uri = new Uri(RepoUrl + "releases/latest", UriKind.Absolute);
-				HttpWebResponse response = Download(config, uri);
-				if (response?.ResponseUri != null)
+				Uri uri = new Uri("https://github.com/sepluginloader/PluginLoader/releases/latest", UriKind.Absolute);
+				HttpWebResponse httpWebResponse = Program.Download(config, uri);
+				if (((httpWebResponse != null) ? httpWebResponse.ResponseUri : null) != null)
 				{
-					string version = response.ResponseUri.OriginalString;
-					int versionStart = version.LastIndexOf('v');
-					if (versionStart >= 0 && versionStart < version.Length)
+					string originalString = httpWebResponse.ResponseUri.OriginalString;
+					int num = originalString.LastIndexOf('v');
+					if (num >= 0 && num < originalString.Length)
 					{
-						latestVersion = version.Substring(versionStart);
+						latestVersion = originalString.Substring(num);
 						if (string.IsNullOrWhiteSpace(currentVersion) || currentVersion != latestVersion)
-							return !VersionRegex.IsMatch(latestVersion);
+						{
+							return !Program.VersionRegex.IsMatch(latestVersion);
+						}
 					}
 				}
 			}
-			catch (Exception e) 
+			catch (Exception ex)
 			{
-				LogFile.WriteLine("An error occurred while getting the latest version: " + e);
+				string str = "An error occurred while getting the latest version: ";
+				Exception ex2 = ex;
+				LogFile.WriteLine(str + ((ex2 != null) ? ex2.ToString() : null));
 			}
 			latestVersion = currentVersion;
 			return true;
 		}
 
-		static bool TryDownloadUpdate(ConfigFile config, string version)
-        {
+		// Token: 0x0600001D RID: 29 RVA: 0x00002BB4 File Offset: 0x00000DB4
+		private static bool TryDownloadUpdate(ConfigFile config, string version)
+		{
 			try
-            {
-				HashSet<string> files = new HashSet<string>();
-
+			{
+				HashSet<string> hashSet = new HashSet<string>();
 				LogFile.WriteLine("Updating to Plugin Loader " + version);
-
-				Uri uri = new Uri(RepoUrl + string.Format(RepoDownloadSuffix, version), UriKind.Absolute);
-				HttpWebResponse response = Download(config, uri);
-				using (Stream zipFileStream = response.GetResponseStream())
-				using (ZipArchive zipFile = new ZipArchive(zipFileStream))
+				Uri uri = new Uri("https://github.com/sepluginloader/PluginLoader/" + string.Format("releases/download/{0}/PluginLoader-{0}.zip", version), UriKind.Absolute);
+				using (Stream responseStream = Program.Download(config, uri).GetResponseStream())
 				{
-					foreach (ZipArchiveEntry entry in zipFile.Entries)
+					using (ZipArchive zipArchive = new ZipArchive(responseStream))
 					{
-						string fileName = Path.GetFileName(entry.FullName);
-						string filePath = Path.Combine(exeLocation, fileName);
-
-						using (Stream entryStream = entry.Open())
-						using (FileStream entryFile = File.Create(filePath))
+						foreach (ZipArchiveEntry zipArchiveEntry in zipArchive.Entries)
 						{
-							entryStream.CopyTo(entryFile);
+							string fileName = Path.GetFileName(zipArchiveEntry.FullName);
+							string path = Path.Combine(Program.exeLocation, fileName);
+							using (Stream stream = zipArchiveEntry.Open())
+							{
+								using (FileStream fileStream = File.Create(path))
+								{
+									stream.CopyTo(fileStream);
+								}
+							}
+							hashSet.Add(fileName);
 						}
-
-						files.Add(fileName);
 					}
 				}
-
 				config.LoaderVersion = version;
-				config.Files = files.ToArray();
+				config.Files = hashSet.ToArray<string>();
 				config.Save();
 				return true;
 			}
-			catch (Exception e)
+			catch (Exception ex)
 			{
-				LogFile.WriteLine("An error occurred while updating: " + e);
+				string str = "An error occurred while updating: ";
+				Exception ex2 = ex;
+				LogFile.WriteLine(str + ((ex2 != null) ? ex2.ToString() : null));
 			}
 			return false;
 		}
 
-		static HttpWebResponse Download(ConfigFile config, Uri uri)
+		// Token: 0x0600001E RID: 30 RVA: 0x00002D7C File Offset: 0x00000F7C
+		private static HttpWebResponse Download(ConfigFile config, Uri uri)
 		{
-			LogFile.WriteLine("Downloading " + uri);
-			HttpWebRequest request = WebRequest.CreateHttp(uri);
-			request.Timeout = config.NetworkTimeout;
-			request.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+			LogFile.WriteLine("Downloading " + ((uri != null) ? uri.ToString() : null));
+			HttpWebRequest httpWebRequest = WebRequest.CreateHttp(uri);
+			httpWebRequest.Timeout = config.NetworkTimeout;
+			httpWebRequest.AutomaticDecompression = (DecompressionMethods.GZip | DecompressionMethods.Deflate);
 			if (!config.AllowIPv6)
-				request.ServicePoint.BindIPEndPointDelegate = BlockIPv6;
-			return request.GetResponse() as HttpWebResponse;
+			{
+				httpWebRequest.ServicePoint.BindIPEndPointDelegate = new BindIPEndPoint(Program.BlockIPv6);
+			}
+			return httpWebRequest.GetResponse() as HttpWebResponse;
 		}
 
+		// Token: 0x0600001F RID: 31 RVA: 0x00002DE9 File Offset: 0x00000FE9
 		private static IPEndPoint BlockIPv6(ServicePoint servicePoint, IPEndPoint remoteEndPoint, int retryCount)
 		{
-			if (remoteEndPoint.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+			if (remoteEndPoint.AddressFamily == AddressFamily.InterNetwork)
+			{
 				return new IPEndPoint(IPAddress.Any, 0);
-
+			}
 			throw new InvalidOperationException("No IPv4 address");
 		}
 
-		static bool CanUseLoader(ConfigFile config)
-        {
-			if (!File.Exists(Path.Combine(exeLocation, PluginLoaderFile)))
-            {
-				LogFile.WriteLine("WARNING: File verification failed, file does not exist: " + PluginLoaderFile);
+		// Token: 0x06000020 RID: 32
+		private static bool CanUseLoader(ConfigFile config)
+		{
+			string path = Path.Combine(Program.exeLocation, "PluginLoader.dll");
+			if (!File.Exists(path))
+			{
+				LogFile.WriteLine("WARNING: PluginLoader.dll not found at: " + path);
 				return false;
 			}
-
-			if (config.Files != null)
-			{
-				foreach (string file in config.Files)
-				{
-					if (!File.Exists(Path.Combine(exeLocation, file)))
-                    {
-						LogFile.WriteLine("WARNING: File verification failed, file does not exist: " + file);
-						return false;
-					}
-				}
-			}
-
 			return true;
-        }
+		}
 
-		static DialogResult Show(string msg, MessageBoxButtons buttons = MessageBoxButtons.OK)
-        {
+		// Token: 0x06000021 RID: 33 RVA: 0x00002E81 File Offset: 0x00001081
+		private static DialogResult Show(string msg, MessageBoxButtons buttons = MessageBoxButtons.OK)
+		{
 			if (Application.OpenForms.Count > 0)
-                return MessageBox.Show(Application.OpenForms[0], msg, "Space Engineers Launcher", buttons);
+			{
+				return MessageBox.Show(Application.OpenForms[0], msg, "Space Engineers Launcher", buttons);
+			}
 			return MessageBox.Show(msg, "Space Engineers Launcher", buttons);
 		}
 
-		static void Restart()
-        {
-			Close();
+		// Token: 0x06000022 RID: 34 RVA: 0x00002EB4 File Offset: 0x000010B4
+		private static void Restart()
+		{
+			Program.Close();
 			Application.Restart();
 			Process.GetCurrentProcess().Kill();
 		}
 
-		static bool FilesEqual(string file1, string file2)
-        {
-			FileInfo fileInfo1 = new FileInfo(file1);
-			FileInfo fileInfo2 = new FileInfo(file2);
-			return fileInfo1.Length == fileInfo2.Length && GetHash256(file1) == GetHash256(file2);
-        }
-
-		static string GetHash256(string file)
+		// Token: 0x06000023 RID: 35 RVA: 0x00002ECC File Offset: 0x000010CC
+		private static bool FilesEqual(string file1, string file2)
 		{
-			using (SHA256CryptoServiceProvider sha = new SHA256CryptoServiceProvider())
-			{
-				return GetHash(file, sha);
-			}
+			FileInfo fileInfo = new FileInfo(file1);
+			FileInfo fileInfo2 = new FileInfo(file2);
+			return fileInfo.Length == fileInfo2.Length && Program.GetHash256(file1) == Program.GetHash256(file2);
 		}
 
-		static string GetHash(string file, HashAlgorithm hash)
+		// Token: 0x06000024 RID: 36 RVA: 0x00002F08 File Offset: 0x00001108
+		private static string GetHash256(string file)
 		{
+			string hash;
+			using (SHA256CryptoServiceProvider sha256CryptoServiceProvider = new SHA256CryptoServiceProvider())
+			{
+				hash = Program.GetHash(file, sha256CryptoServiceProvider);
+			}
+			return hash;
+		}
+
+		// Token: 0x06000025 RID: 37 RVA: 0x00002F40 File Offset: 0x00001140
+		private static string GetHash(string file, HashAlgorithm hash)
+		{
+			string result;
 			using (FileStream fileStream = new FileStream(file, FileMode.Open))
 			{
 				using (BufferedStream bufferedStream = new BufferedStream(fileStream))
 				{
-					byte[] data = hash.ComputeHash(bufferedStream);
-					StringBuilder sb = new StringBuilder(2 * data.Length);
-					foreach (byte b in data)
-						sb.AppendFormat("{0:x2}", b);
-					return sb.ToString();
+					byte[] array = hash.ComputeHash(bufferedStream);
+					StringBuilder stringBuilder = new StringBuilder(2 * array.Length);
+					foreach (byte b in array)
+					{
+						stringBuilder.AppendFormat("{0:x2}", b);
+					}
+					result = stringBuilder.ToString();
 				}
 			}
+			return result;
 		}
+
+		// Token: 0x06000026 RID: 38 RVA: 0x00002FDC File Offset: 0x000011DC
+		static Program()
+		{
+		}
+
+		// Token: 0x04000008 RID: 8
+		private const uint AppId = 244850U;
+
+		// Token: 0x04000009 RID: 9
+		private const string RepoUrl = "https://github.com/sepluginloader/PluginLoader/";
+
+		// Token: 0x0400000A RID: 10
+		private const string RepoDownloadSuffix = "releases/download/{0}/PluginLoader-{0}.zip";
+
+		// Token: 0x0400000B RID: 11
+		private static readonly Regex VersionRegex = new Regex("^v(\\d+\\.)*\\d+$");
+
+		// Token: 0x0400000C RID: 12
+		private const string PluginLoaderFile = "PluginLoader.dll";
+
+		// Token: 0x0400000D RID: 13
+		private const string OriginalAssemblyFile = "SpaceEngineers.exe";
+
+		// Token: 0x0400000E RID: 14
+		private const string ProgramGuid = "03f85883-4990-4d47-968e-5e4fc5d72437";
+
+		// Token: 0x0400000F RID: 15
+		private static readonly System.Version SupportedGameVersion = new System.Version(1, 202, 0);
+
+		// Token: 0x04000010 RID: 16
+		private const int MutexTimeout = 1000;
+
+		// Token: 0x04000011 RID: 17
+		private const int SteamTimeout = 30;
+
+		// Token: 0x04000012 RID: 18
+		private static string exeLocation;
+
+		// Token: 0x04000013 RID: 19
+		private static SplashScreen splash;
+
+		// Token: 0x04000014 RID: 20
+		private static Mutex mutex;
+
+		// Token: 0x04000015 RID: 21
+		private static bool mutexActive;
 	}
 }
